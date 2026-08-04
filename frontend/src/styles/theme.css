@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design rationale (see docs/ARCHITECTURE.md for the full plan):
+  - Olive/Gold/Graphite is the college's own palette, matched to the
+    Laikipia East TVC crest (frontend/public/logo.png), which appears in
+    the sidebar and on the login screen.
+  - The workflow stepper (WorkflowStepper.jsx) is the other constant visual:
+    a horizontal Trainer -> HOD -> IQA -> DP chain that appears on every
+    document, in every role's view — a literal rendering of "a document
+    cannot skip a stage."
+*/
+
+:root {
+  --focus-ring: 0 0 0 3px rgba(201, 162, 39, 0.45);
+}
+
+* { scrollbar-width: thin; }
+
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
