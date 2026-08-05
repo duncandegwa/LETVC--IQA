@@ -54,3 +54,6 @@ async function scanFile(filePath) {
 }
 
 module.exports = { upload, uploadSignatureImage, uploadPhoto, uploadDir, scanFile };
+
+
+
