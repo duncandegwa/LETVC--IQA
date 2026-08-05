@@ -1,7 +1,7 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://letvc-iluwt0sw8-duncandegwas-projects.vercel.app/api/$1" },
+    { "source": "/api/(.*)", "destination": "https://letvc-iqa.vercel.app/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
