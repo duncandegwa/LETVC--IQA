@@ -355,7 +355,8 @@ This step is easy to miss and will cause sign-in to silently fail if skipped:
 | Backend won't start / Prisma errors | `DATABASE_URL` typo, or you forgot `npx prisma migrate dev` |
 | "Invalid or expired session" on every request | Frontend and backend are pointed at **different** Firebase projects — double check `VITE_FIREBASE_PROJECT_ID` matches `FIREBASE_PROJECT_ID` |
 | Login works locally but not on Vercel | You skipped Part 8.7 (Firebase authorized domains) |
-| Uploads disappear after a while on Vercel | Expected — see `docs/ARCHITECTURE.md` and README §3 in the previous version: file storage needs to move to Supabase Storage before relying on it in production; it currently uses local disk, which Vercel doesn't persist |
+| Backend crashes with `ENOENT ... mkdir './uploads'` in the function logs | Fixed as of this version — the backend now automatically writes to `/tmp/uploads` on Vercel instead of trying to create a folder in the read-only deployment bundle. If you're still seeing this, redeploy from the latest code. |
+| Uploads disappear after a while on Vercel | Expected even after the crash fix above — `/tmp` on Vercel is writable but **ephemeral**: it can be wiped between requests and isn't shared across function instances. File storage needs to move to Supabase Storage (see `docs/ARCHITECTURE.md` §3) before relying on it in production. |
 | "Too many connections" errors under load on Vercel | You used the **direct** Supabase connection string instead of the **pooled** one in the backend's Vercel environment variables (Part 8.3) |
 | `The table 'public.TrainerReviewerAssignment' does not exist` (or `Message`, or any similar "table does not exist" error after pulling an update) | You already had the project set up and an update added a new database table. Run `npx prisma migrate dev` again from `backend/` — Prisma only applies the *new* migration, it won't touch your existing data |
 
