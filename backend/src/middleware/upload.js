@@ -3,8 +3,28 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
-const uploadDir = process.env.UPLOAD_DIR || './uploads';
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+// Vercel's deployment bundle (/var/task) is READ-ONLY. The only writable
+// path in a Vercel serverless function is /tmp — and even that is
+// EPHEMERAL: it can be wiped between invocations and is never shared across
+// function instances. That makes this fine for getting the app running
+// without crashing, but NOT a real fix for persistent file storage — see
+// README "Before you deploy anywhere" for the Supabase Storage swap this
+// still needs before uploads can be relied on in production.
+//
+// process.env.VERCEL is set to '1' automatically by the platform, so we
+// don't need a manual flag to detect this.
+const defaultUploadDir = process.env.VERCEL ? '/tmp/uploads' : './uploads';
+const uploadDir = process.env.UPLOAD_DIR || defaultUploadDir;
+
+try {
+  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+} catch (err) {
+  // Never let a storage-directory problem crash the entire function on
+  // every single request (including ones that don't even touch uploads) —
+  // log it and let individual upload attempts fail with a clear error
+  // instead of taking down /api/auth/me, /, and everything else with it.
+  console.error(`[upload] could not create upload directory "${uploadDir}":`, err.message);
+}
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
@@ -54,6 +74,3 @@ async function scanFile(filePath) {
 }
 
 module.exports = { upload, uploadSignatureImage, uploadPhoto, uploadDir, scanFile };
-
-
-
