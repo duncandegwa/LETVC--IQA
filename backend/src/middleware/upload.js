@@ -11,10 +11,16 @@ const { v4: uuidv4 } = require('uuid');
 // README "Before you deploy anywhere" for the Supabase Storage swap this
 // still needs before uploads can be relied on in production.
 //
-// process.env.VERCEL is set to '1' automatically by the platform, so we
-// don't need a manual flag to detect this.
-const defaultUploadDir = process.env.VERCEL ? '/tmp/uploads' : './uploads';
-const uploadDir = process.env.UPLOAD_DIR || defaultUploadDir;
+// process.env.VERCEL is set to '1' automatically by the platform. This
+// check is deliberately unconditional — NOT just a fallback default — so
+// that an UPLOAD_DIR env var copied over from a local .env file (e.g.
+// "./uploads") can never silently re-break this on Vercel. Any UPLOAD_DIR
+// that isn't already under /tmp gets overridden when running there.
+let uploadDir = process.env.UPLOAD_DIR || './uploads';
+if (process.env.VERCEL && !uploadDir.startsWith('/tmp')) {
+  console.warn(`[upload] Running on Vercel — ignoring UPLOAD_DIR="${uploadDir}" (not writable here) and using /tmp/uploads instead.`);
+  uploadDir = '/tmp/uploads';
+}
 
 try {
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
