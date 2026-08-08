@@ -1,9 +1,8 @@
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const { v4: uuidv4 } = require('uuid');
 const prisma = require('../config/db');
+const storage = require('./storage');
 
 // Each stage gets its own vertical slot in the right-hand margin, stacked
 // bottom-to-top in the order it happens — Trainer submission at the bottom,
@@ -84,26 +83,29 @@ async function drawStampBox(pdfDoc, lastPage, { stage, person, includeOfficialSt
   // clearly on a printed page, not just a token mark.
   try {
     const signatureAsset = await getActiveAsset(person.id, 'SIGNATURE');
-    const uploadDir = process.env.UPLOAD_DIR || './uploads';
     if (signatureAsset) {
-      const sigPath = path.join(uploadDir, path.basename(signatureAsset.fileUrl));
-      if (fs.existsSync(sigPath)) {
-        const sigImage = await pdfDoc.embedPng(fs.readFileSync(sigPath));
+      try {
+        const sigBuffer = await storage.load(signatureAsset.fileUrl);
+        const sigImage = await pdfDoc.embedPng(sigBuffer);
         const sigDims = sigImage.scaleToFit(120, 46);
         lastPage.drawImage(sigImage, { x: textX, y: boxY + 8, width: sigDims.width, height: sigDims.height });
+      } catch {
+        // Signature file not found in storage — fine, just skip the image.
       }
     }
     if (includeOfficialStamp) {
       const stampAsset = await getActiveAsset(person.id, 'STAMP');
       if (stampAsset) {
-        const stampPath = path.join(uploadDir, path.basename(stampAsset.fileUrl));
-        if (fs.existsSync(stampPath)) {
-          const stampImage = await pdfDoc.embedPng(fs.readFileSync(stampPath));
+        try {
+          const stampBuffer = await storage.load(stampAsset.fileUrl);
+          const stampImage = await pdfDoc.embedPng(stampBuffer);
           const stampDims = stampImage.scaleToFit(64, 64);
           lastPage.drawImage(stampImage, {
             x: boxX + BOX_WIDTH - stampDims.width - 10, y: boxY + 8,
             width: stampDims.width, height: stampDims.height,
           });
+        } catch {
+          // Stamp file not found in storage — fine, just skip the image.
         }
       }
     }
@@ -117,29 +119,26 @@ async function drawStampBox(pdfDoc, lastPage, { stage, person, includeOfficialSt
 async function loadLatestPdf(document) {
   const latestVersion = (document.versions || [])[0];
   if (!latestVersion) return null;
-  const uploadDir = process.env.UPLOAD_DIR || './uploads';
-  const inputPath = path.join(uploadDir, path.basename(latestVersion.fileUrl));
-  if (!fs.existsSync(inputPath)) {
-    // In this scaffold, storage may be a remote adapter (Supabase/Firebase)
-    // rather than local disk — swap this read for storage.getBuffer(url).
-    console.warn(`[pdfStamper] source file not found locally, skipping stamp: ${inputPath}`);
+  try {
+    const buffer = await storage.load(latestVersion.fileUrl);
+    return { pdfDoc: await PDFDocument.load(buffer) };
+  } catch (err) {
+    console.warn(`[pdfStamper] source file not found in storage, skipping stamp: ${latestVersion.fileUrl}`, err.message);
     return null;
   }
-  return { inputPath, pdfDoc: await PDFDocument.load(fs.readFileSync(inputPath)) };
 }
 
 async function saveNewVersion(document, pdfDoc, { isFinal = false, verificationNumber = undefined } = {}) {
-  const uploadDir = process.env.UPLOAD_DIR || './uploads';
   const stampedBytes = await pdfDoc.save();
   const nextVersionNo = document.currentVersionNo + 1;
-  const outFileName = `${document.id}-v${nextVersionNo}.pdf`;
-  fs.writeFileSync(path.join(uploadDir, outFileName), stampedBytes);
+  const outFileKey = `${document.id}-v${nextVersionNo}.pdf`;
+  await storage.save(outFileKey, Buffer.from(stampedBytes));
 
   await prisma.documentVersion.create({
     data: {
       documentId: document.id,
       versionNo: nextVersionNo,
-      fileUrl: outFileName,
+      fileUrl: outFileKey,
       fileHash: crypto.createHash('sha256').update(stampedBytes).digest('hex'),
       isFinal,
     },

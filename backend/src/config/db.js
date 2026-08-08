@@ -16,8 +16,18 @@ const { PrismaClient } = require('@prisma/client');
  * automatically if it's missing.
  */
 function resolveDatabaseUrl() {
-  const raw = process.env.DATABASE_URL;
+  let raw = process.env.DATABASE_URL;
   if (!raw) return raw;
+
+  // Guards against a common paste mistake: copying DATABASE_URL="..." out of
+  // a local .env file, quotes and all, into Vercel's env var box. Vercel
+  // stores the literal value including those quotes, which silently breaks
+  // the connection string in a way that's easy to miss.
+  raw = raw.trim();
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    raw = raw.slice(1, -1);
+  }
+
   const looksLikePooler = raw.includes('pooler.supabase.com') || raw.includes(':6543');
   if (!looksLikePooler || raw.includes('pgbouncer=true')) return raw;
 

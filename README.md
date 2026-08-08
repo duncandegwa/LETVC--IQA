@@ -119,6 +119,16 @@ laikipia-iqa/
    Replace `[YOUR-PASSWORD]` with the database password from step 2. Keep this handy for
    Part 5.
 
+### 4.1 Create a Storage bucket (required — this is where uploaded PDFs actually live)
+1. In your Supabase project, go to **Storage** in the left sidebar → **New bucket**.
+2. Name it `documents` and leave it **Private** (not public) — the app serves files
+   through its own login-protected routes, not a public bucket URL.
+3. Go to **Project Settings → API**. Copy two values, you'll need them in Part 5:
+   - **Project URL**
+   - The **`service_role`** secret key (further down the page, under "Project API keys" —
+     **not** the `anon` public key; the service role key is what lets the backend write
+     to a private bucket).
+
 ---
 
 ## Part 5 — Configure the backend
@@ -135,6 +145,9 @@ Open `backend/.env` in your code editor and fill in each value:
 | `FIREBASE_PROJECT_ID` | Open the service account `.json` file from Part 3.2 — copy the `project_id` value |
 | `FIREBASE_CLIENT_EMAIL` | Same file — copy the `client_email` value |
 | `FIREBASE_PRIVATE_KEY` | Same file — copy the entire `private_key` value, **including** the quotes and the `\n` characters exactly as they appear. Paste it as one line, wrapped in double quotes. |
+| `SUPABASE_URL` | The **Project URL** from Part 4.1 step 3 |
+| `SUPABASE_SERVICE_ROLE_KEY` | The **`service_role`** key from Part 4.1 step 3 |
+| `SUPABASE_STORAGE_BUCKET` | Leave as `documents` unless you named your bucket something else |
 | `CLIENT_URL` | Leave as `http://localhost:5173` for now |
 | `SMTP_*` | Leave blank for now — the system will just print notification emails to the terminal instead of sending them. Not needed to get things running. |
 
@@ -283,6 +296,9 @@ also connects your repos automatically).
    | `FIREBASE_PROJECT_ID` | Same as local |
    | `FIREBASE_CLIENT_EMAIL` | Same as local |
    | `FIREBASE_PRIVATE_KEY` | Same as local — if Vercel's input field mangles the multi-line value, use `FIREBASE_SERVICE_ACCOUNT_JSON` instead: paste the *entire* downloaded service-account `.json` file's contents as one single-line value |
+   | `SUPABASE_URL` | Same as local (Part 4.1) — **required** on Vercel, not optional here. Without this, uploaded files use Vercel's temporary `/tmp` storage and will unpredictably disappear between requests. |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Same as local (Part 4.1) — required for the same reason |
+   | `SUPABASE_STORAGE_BUCKET` | Same as local, usually `documents` |
    | `CLIENT_URL` | Leave blank for now — you'll set this in step 8.5 once the frontend has a URL |
    | `SMTP_*` | Same as local, if you have them |
 
@@ -355,8 +371,7 @@ This step is easy to miss and will cause sign-in to silently fail if skipped:
 | Backend won't start / Prisma errors | `DATABASE_URL` typo, or you forgot `npx prisma migrate dev` |
 | "Invalid or expired session" on every request | Frontend and backend are pointed at **different** Firebase projects — double check `VITE_FIREBASE_PROJECT_ID` matches `FIREBASE_PROJECT_ID` |
 | Login works locally but not on Vercel | You skipped Part 8.7 (Firebase authorized domains) |
-| Backend crashes with `ENOENT ... mkdir './uploads'` in the function logs | Fixed as of this version — the backend now automatically writes to `/tmp/uploads` on Vercel instead of trying to create a folder in the read-only deployment bundle. If you're still seeing this, redeploy from the latest code. |
-| Uploads disappear after a while on Vercel | Expected even after the crash fix above — `/tmp` on Vercel is writable but **ephemeral**: it can be wiped between requests and isn't shared across function instances. File storage needs to move to Supabase Storage (see `docs/ARCHITECTURE.md` §3) before relying on it in production. |
+| Uploads disappear / `ENOENT` errors trying to preview or download a file you just uploaded, on Vercel | `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` aren't set in your backend's Vercel environment variables (Part 8.3) — without them, the backend silently falls back to Vercel's ephemeral `/tmp`, which isn't shared between requests. Add both, create the Storage bucket from Part 4.1 if you haven't, and redeploy. Check the function logs for a `[storage] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set` warning to confirm this is the cause. |
 | "Too many connections" errors under load on Vercel | You used the **direct** Supabase connection string instead of the **pooled** one in the backend's Vercel environment variables (Part 8.3) |
 | `PrismaClientUnknownRequestError: prepared statement "sN" already exists` in the function logs | Your Supabase pooled `DATABASE_URL` is missing `?pgbouncer=true`. Fixed automatically as of this version — the backend now detects a pooler connection string and adds it if missing — but if you're still on older code, add `?pgbouncer=true&connection_limit=1` to the end of the pooled `DATABASE_URL` in your Vercel backend env vars and redeploy. |
 | `The table 'public.TrainerReviewerAssignment' does not exist` (or `Message`, or any similar "table does not exist" error after pulling an update) | You already had the project set up and an update added a new database table. Run `npx prisma migrate dev` again from `backend/` — Prisma only applies the *new* migration, it won't touch your existing data |
