@@ -1,10 +1,11 @@
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../config/db');
 const admin = require('../config/firebaseAdmin');
 const { logAudit } = require('../services/auditLog');
 const { notify } = require('../services/notifications');
 const { getUserCapabilities } = require('../services/capabilities');
-const { generateFileKey } = require('../middleware/upload');
-const storage = require('../services/storage');
+const { uploadDir } = require('../middleware/upload');
 
 // Every new account — and every admin-triggered password reset — starts
 // with this same known password. Security still comes from
@@ -203,23 +204,18 @@ async function getUserPhoto(req, res, next) {
   try {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: req.params.id } });
     if (!user.profilePhotoUrl) return res.status(404).json({ error: 'No profile photo set' });
-    try {
-      const buffer = await storage.load(user.profilePhotoUrl);
-      res.send(buffer);
-    } catch {
-      return res.status(404).json({ error: 'No profile photo set' });
-    }
+    const filePath = path.join(uploadDir, path.basename(user.profilePhotoUrl));
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'No profile photo set' });
+    fs.createReadStream(filePath).pipe(res);
   } catch (err) { next(err); }
 }
 
 async function uploadMyPhoto(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ error: 'An image file is required' });
-    const fileKey = generateFileKey(req.file.originalname);
-    await storage.save(fileKey, req.file.buffer);
     const user = await prisma.user.update({
       where: { id: req.user.id },
-      data: { profilePhotoUrl: fileKey },
+      data: { profilePhotoUrl: req.file.filename },
     });
     await logAudit({ actorId: req.user.id, action: 'PROFILE_PHOTO_UPDATED' });
     res.json(user);
@@ -234,13 +230,13 @@ async function uploadMyPhoto(req, res, next) {
  * lookup always resolves to exactly one current signature and one current
  * stamp per person.
  */
-async function setSignatureAsset(userId, kind, fileKey, actorId) {
+async function setSignatureAsset(userId, kind, filename, actorId) {
   await prisma.signatureAsset.updateMany({
     where: { userId, kind, isActive: true },
     data: { isActive: false },
   });
   const asset = await prisma.signatureAsset.create({
-    data: { userId, kind, fileUrl: fileKey, isActive: true },
+    data: { userId, kind, fileUrl: filename, isActive: true },
   });
   await logAudit({ actorId, action: `${kind}_ASSET_UPLOADED`, metadata: { userId, assetId: asset.id } });
   return asset;
@@ -249,9 +245,7 @@ async function setSignatureAsset(userId, kind, fileKey, actorId) {
 async function uploadMySignature(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ error: 'A transparent PNG signature is required' });
-    const fileKey = generateFileKey(req.file.originalname);
-    await storage.save(fileKey, req.file.buffer);
-    const asset = await setSignatureAsset(req.user.id, 'SIGNATURE', fileKey, req.user.id);
+    const asset = await setSignatureAsset(req.user.id, 'SIGNATURE', req.file.filename, req.user.id);
     res.status(201).json(asset);
   } catch (err) { next(err); }
 }
@@ -259,9 +253,7 @@ async function uploadMySignature(req, res, next) {
 async function uploadMyStamp(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ error: 'A transparent PNG stamp is required' });
-    const fileKey = generateFileKey(req.file.originalname);
-    await storage.save(fileKey, req.file.buffer);
-    const asset = await setSignatureAsset(req.user.id, 'STAMP', fileKey, req.user.id);
+    const asset = await setSignatureAsset(req.user.id, 'STAMP', req.file.filename, req.user.id);
     res.status(201).json(asset);
   } catch (err) { next(err); }
 }
@@ -270,9 +262,7 @@ async function uploadMyStamp(req, res, next) {
 async function adminUploadSignatureFor(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ error: 'A transparent PNG signature is required' });
-    const fileKey = generateFileKey(req.file.originalname);
-    await storage.save(fileKey, req.file.buffer);
-    const asset = await setSignatureAsset(req.params.id, 'SIGNATURE', fileKey, req.user.id);
+    const asset = await setSignatureAsset(req.params.id, 'SIGNATURE', req.file.filename, req.user.id);
     res.status(201).json(asset);
   } catch (err) { next(err); }
 }
@@ -280,9 +270,7 @@ async function adminUploadSignatureFor(req, res, next) {
 async function adminUploadStampFor(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ error: 'A transparent PNG stamp is required' });
-    const fileKey = generateFileKey(req.file.originalname);
-    await storage.save(fileKey, req.file.buffer);
-    const asset = await setSignatureAsset(req.params.id, 'STAMP', fileKey, req.user.id);
+    const asset = await setSignatureAsset(req.params.id, 'STAMP', req.file.filename, req.user.id);
     res.status(201).json(asset);
   } catch (err) { next(err); }
 }
@@ -294,13 +282,10 @@ async function getSignatureAssetFile(req, res, next) {
     if (asset.userId !== req.user.id && req.user.systemRole !== 'ADMIN') {
       return res.status(403).json({ error: 'Not authorized to view this asset' });
     }
-    try {
-      const buffer = await storage.load(asset.fileUrl);
-      res.setHeader('Content-Type', 'image/png');
-      res.send(buffer);
-    } catch {
-      return res.status(404).json({ error: 'File not found' });
-    }
+    const filePath = path.join(uploadDir, path.basename(asset.fileUrl));
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    res.setHeader('Content-Type', 'image/png');
+    fs.createReadStream(filePath).pipe(res);
   } catch (err) { next(err); }
 }
 

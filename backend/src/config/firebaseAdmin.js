@@ -21,15 +21,7 @@ function loadCredential() {
 }
 
 if (!admin.apps.length) {
-  try {
-    admin.initializeApp({ credential: loadCredential() });
-  } catch (err) {
-    // Without this log, a bad FIREBASE_PRIVATE_KEY/PROJECT_ID/CLIENT_EMAIL
-    // on Vercel just shows up as a bare "FUNCTION_INVOCATION_FAILED" with no
-    // clue why — check this message in the deployment's function logs.
-    console.error('[firebaseAdmin] Failed to initialize — check FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY (or FIREBASE_SERVICE_ACCOUNT_JSON) are set correctly:', err.message);
-    throw err;
-  }
+  admin.initializeApp({ credential: loadCredential() });
 }
 
 module.exports = admin;

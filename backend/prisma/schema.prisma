@@ -3,11 +3,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  // "native" covers your local machine. The other two cover Vercel's
-  // serverless Linux runtime — without this, Prisma only ships the engine
-  // binary for your own OS, and every request crashes on Vercel with
-  // FUNCTION_INVOCATION_FAILED as soon as it tries to touch the database.
-  binaryTargets = ["native", "rhel-openssl-3.0.x", "rhel-openssl-1.0.x"]
 }
 
 datasource db {

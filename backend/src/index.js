@@ -13,6 +13,18 @@ const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 
+// Vercel (like most hosting platforms) sits in front of the app as a proxy
+// and sets X-Forwarded-For with the real client IP. Express doesn't trust
+// that header by default — for good reason, since a self-hosted app facing
+// the public internet directly should never trust a client-supplied
+// header for anything security-relevant. But behind Vercel's own edge
+// network specifically, X-Forwarded-For is trustworthy (Vercel sets it,
+// not the client), and without this, express-rate-limit can't safely
+// identify individual users and throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
+// on every request. `1` means "trust exactly one hop" — Vercel's own proxy,
+// not any further/spoofable hop behind it.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 // No cookies are used anymore — Firebase ID tokens travel as a Bearer
 // header, so this doesn't need `credentials: true` or a cookie parser.

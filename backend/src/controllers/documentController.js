@@ -1,14 +1,15 @@
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const prisma = require('../config/db');
 const { logAudit } = require('../services/auditLog');
-const { scanFile, generateFileKey } = require('../middleware/upload');
-const storage = require('../services/storage');
+const { scanFile, uploadDir } = require('../middleware/upload');
 const { submitForReview } = require('../services/workflowEngine');
 const { stampSubmission } = require('../services/pdfStamper');
 const { getUserCapabilities } = require('../services/capabilities');
 
-function fileHashOf(buffer) {
-  return crypto.createHash('sha256').update(buffer).digest('hex');
+function fileHashOf(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
 /**
@@ -48,8 +49,9 @@ async function uploadDocument(req, res, next) {
     const { type, title, departmentId, academicYear, semester, submitNow } = req.body;
     if (!req.file) return res.status(400).json({ error: 'A PDF file is required' });
 
-    const scan = await scanFile(req.file.buffer);
+    const scan = await scanFile(req.file.path);
     if (!scan.clean) {
+      fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: 'File failed the security scan' });
     }
 
@@ -60,12 +62,10 @@ async function uploadDocument(req, res, next) {
       },
     });
 
-    const fileKey = generateFileKey(req.file.originalname);
-    await storage.save(fileKey, req.file.buffer);
     await prisma.documentVersion.create({
       data: {
         documentId: document.id, versionNo: 1,
-        fileUrl: fileKey, fileHash: fileHashOf(req.file.buffer),
+        fileUrl: req.file.filename, fileHash: fileHashOf(req.file.path),
       },
     });
 
@@ -95,19 +95,17 @@ async function uploadNewVersion(req, res, next) {
     }
     if (!req.file) return res.status(400).json({ error: 'A PDF file is required' });
 
-    const scan = await scanFile(req.file.buffer);
+    const scan = await scanFile(req.file.path);
     if (!scan.clean) {
+      fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: 'File failed the security scan' });
     }
-
-    const fileKey = generateFileKey(req.file.originalname);
-    await storage.save(fileKey, req.file.buffer);
 
     const nextVersionNo = document.currentVersionNo + 1;
     await prisma.documentVersion.create({
       data: {
         documentId: id, versionNo: nextVersionNo,
-        fileUrl: fileKey, fileHash: fileHashOf(req.file.buffer),
+        fileUrl: req.file.filename, fileHash: fileHashOf(req.file.path),
       },
     });
     const updated = await prisma.document.update({
@@ -219,11 +217,8 @@ async function downloadLatest(req, res, next) {
     const version = document.versions[0];
     if (!version) return res.status(404).json({ error: 'No file available' });
 
-    const buffer = await storage.load(version.fileUrl);
     await logAudit({ actorId: req.user.id, documentId: document.id, action: 'DOCUMENT_DOWNLOADED' });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${document.title}.pdf"`);
-    res.send(buffer);
+    res.download(path.join(uploadDir, version.fileUrl), `${document.title}.pdf`);
   } catch (err) { next(err); }
 }
 
@@ -245,11 +240,11 @@ async function previewLatest(req, res, next) {
     const version = document.versions[0];
     if (!version) return res.status(404).json({ error: 'No file available' });
 
-    const buffer = await storage.load(version.fileUrl);
     await logAudit({ actorId: req.user.id, documentId: document.id, action: 'DOCUMENT_PREVIEWED' });
+    const filePath = path.join(uploadDir, version.fileUrl);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${document.title}.pdf"`);
-    res.send(buffer);
+    fs.createReadStream(filePath).pipe(res);
   } catch (err) { next(err); }
 }
 
